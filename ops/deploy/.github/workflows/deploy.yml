@@ -1,0 +1,187 @@
+name: deploy
+
+on:
+  push:
+    branches: [{{MAIN}}]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+env:
+  DEPLOY_HOST: ${{ vars.DEPLOY_HOST }}
+  DEPLOY_HOST_KEY: ${{ vars.DEPLOY_HOST_KEY }}
+  TARGET: ${{ vars.DEPLOY_USER || 'root' }}@${{ vars.DEPLOY_HOST }}
+  APP_DIR: ${{ vars.DEPLOY_DIR || '/var/www/{{SLUG}}' }}
+  SMOKE_URLS: ${{ vars.SMOKE_URLS }}
+  SSH: ssh -i ~/.ssh/deploy -o IdentitiesOnly=yes -o ConnectTimeout=15 -o ConnectionAttempts=3 -o ServerAliveInterval=15 -o ServerAliveCountMax=4
+  SHA: ${{ github.sha }}
+  MAIN: {{MAIN}}
+
+jobs:
+  tested:
+    name: Was this tree tested on its pull request
+    runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      already: ${{ steps.look.outputs.already }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 2
+
+      - name: Look for a green CI run on the merged branch with the same tree
+        id: look
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          already=no
+          branch=$(git rev-parse -q --verify 'HEAD^2' || true)
+          if [ "$EVENT" = "push" ] && [ -n "$branch" ] && [ "$(git rev-parse 'HEAD^{tree}')" = "$(git rev-parse "$branch^{tree}")" ]; then
+            green=$(curl -fsS -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
+              "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?head_sha=$branch&status=success&event=pull_request&per_page=1" \
+              | grep -o '"total_count": *[0-9]*' | grep -o '[0-9]*$' || echo 0)
+            if [ "${green:-0}" -gt 0 ]; then
+              already=yes
+              echo "::notice::$SHA has the tree of $branch, which CI passed on its pull request. Not running the gate twice."
+            fi
+          fi
+          echo "already=$already" >> "$GITHUB_OUTPUT"
+
+  verify:
+    name: Verify
+    needs: tested
+    if: needs.tested.outputs.already != 'yes'
+    uses: ./.github/workflows/ci.yml
+
+  guard:
+    name: Guard
+    needs: [tested, verify]
+    runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
+    if: always() && needs.tested.result == 'success' && (needs.verify.result == 'success' || (needs.verify.result == 'skipped' && needs.tested.outputs.already == 'yes'))
+    outputs:
+      ship: ${{ steps.decide.outputs.ship }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          sparse-checkout: .github/scripts
+
+      - name: Load the deploy key and pin the host
+        env:
+          DEPLOY_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+        run: .github/scripts/load-deploy-key.sh
+
+      - name: Wait for the box to answer
+        run: .github/scripts/wait-for-ssh.sh
+
+      - name: Decide whether this commit is the one to ship
+        id: decide
+        run: |
+          head=$($SSH "$TARGET" "cd $APP_DIR && git fetch --quiet origin $MAIN && git rev-parse origin/$MAIN")
+          if [ "$head" = "$SHA" ]; then
+            echo "ship=yes" >> "$GITHUB_OUTPUT"
+            echo "shipping $SHA"
+            exit 0
+          fi
+          if $SSH "$TARGET" "cd $APP_DIR && git merge-base --is-ancestor $SHA origin/$MAIN"; then
+            echo "ship=no" >> "$GITHUB_OUTPUT"
+            echo "::notice::$MAIN has moved on to $head. The run for that commit ships it."
+            exit 0
+          fi
+          echo "::error::$SHA is not on origin/$MAIN ($head)."
+          exit 1
+
+  ship:
+    name: Ship to production
+    needs: [verify, guard]
+    if: always() && needs.guard.outputs.ship == 'yes' && needs.verify.result != 'failure' && needs.verify.result != 'cancelled'
+    runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
+    environment: production
+
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          sparse-checkout: .github/scripts
+
+      - name: Load the deploy key and pin the host
+        env:
+          DEPLOY_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+        run: .github/scripts/load-deploy-key.sh
+
+      - name: Wait for the box to answer
+        run: .github/scripts/wait-for-ssh.sh
+
+      - name: Refuse anything that is not the head of {{MAIN}}
+        run: |
+          head=$($SSH "$TARGET" "cd $APP_DIR && git fetch --quiet origin $MAIN && git rev-parse origin/$MAIN")
+          if [ "$head" != "$SHA" ]; then
+            echo "::error::$SHA is not the head of origin/$MAIN ($head)."
+            exit 1
+          fi
+
+      - name: Remember what the box is running
+        run: |
+          before=$($SSH "$TARGET" "cd $APP_DIR && git rev-parse HEAD")
+          echo "BEFORE_SHA=$before" >> "$GITHUB_ENV"
+          echo "box is at $before"
+
+      - name: Branch a Neon restore point
+        if: vars.NEON_PROJECT_ID != ''
+        env:
+          NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+          NEON_PROJECT_ID: ${{ vars.NEON_PROJECT_ID }}
+        run: .github/scripts/neon-restore-point.sh
+
+      - name: Pull onto {{MAIN}}
+        run: |
+          $SSH "$TARGET" "cd $APP_DIR && git checkout $MAIN && git pull --ff-only"
+          at=$($SSH "$TARGET" "cd $APP_DIR && git rev-parse HEAD")
+          [ "$at" = "$SHA" ] || { echo "::error::box is at $at, expected $SHA"; exit 1; }
+
+      - name: Release
+        run: $SSH "$TARGET" "cd $APP_DIR && BEFORE_SHA=$BEFORE_SHA scripts/deploy/release.sh"
+
+      - name: Smoke check
+        run: $SSH "$TARGET" "cd $APP_DIR && scripts/deploy/smoke.sh $SMOKE_URLS"
+
+      - name: Put the code back
+        if: failure() && env.BEFORE_SHA != ''
+        run: |
+          echo "::warning::Deploy failed. Resetting $MAIN on the box to $BEFORE_SHA and releasing it again."
+          echo "::warning::Migrations that already ran are NOT undone. Check them before deploying again."
+          $SSH "$TARGET" "set -e
+            cd $APP_DIR
+            git checkout $MAIN
+            git reset --hard $BEFORE_SHA
+            ROLLBACK=1 scripts/deploy/release.sh
+            scripts/deploy/smoke.sh $SMOKE_URLS"
+
+  alert:
+    name: Alert on a failed deploy
+    needs: [tested, verify, guard, ship]
+    if: always() && contains(needs.*.result, 'failure')
+    runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
+    permissions:
+      issues: write
+    steps:
+      - name: Open an issue assigned to the repository owner
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          OWNER: ${{ github.repository_owner }}
+        run: |
+          jq -n --arg title "Deploy failed for ${SHA:0:7}" \
+            --arg body "Deploy run: $RUN_URL"$'\n\n'"Commit: $SHA"$'\n\n'"If the failure came after the release step started, the code was put back but any migration that ran was not. Read deploy/README.md, \"After a failed deploy\", before re-running." \
+            --arg owner "$OWNER" '{title: $title, body: $body, assignees: [$owner]}' > "$RUNNER_TEMP/deploy-alert.json"
+          curl -fsS -X POST \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/issues" \
+            --data @"$RUNNER_TEMP/deploy-alert.json" -o /dev/null -w "issue created: %{http_code}\n"

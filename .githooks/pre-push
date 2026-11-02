@@ -1,0 +1,27 @@
+#!/bin/sh
+
+if [ "${GROUNDWORK_ALLOW_MAIN_PUSH:-}" = "1" ]; then
+	exit 0
+fi
+
+while read -r local_ref local_sha remote_ref remote_sha; do
+	if [ "$remote_ref" = "refs/heads/main" ]; then
+		echo ""
+		echo "  Refusing to push to main."
+		echo ""
+		echo "  Push a branch and merge it through a pull request once CI is green:"
+		echo ""
+		echo "      git push -u origin <type>/<topic>"
+		echo "      gh pr create --base main"
+		echo ""
+		echo "  Tags are not affected: git push origin vX.Y.Z"
+		echo ""
+		echo "  If you genuinely mean to push main:"
+		echo ""
+		echo "      GROUNDWORK_ALLOW_MAIN_PUSH=1 git push …"
+		echo ""
+		exit 1
+	fi
+done
+
+exit 0

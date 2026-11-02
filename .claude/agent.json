@@ -1,0 +1,52 @@
+{
+  "project": "groundwork",
+  "description": "The agent working method as an installable template: the rule files, handover documents, Claude Code hooks, git hooks, skills and path rules that make a coding agent work the same way in every project.",
+  "mainBranch": "main",
+  "overridePrefix": "GROUNDWORK",
+  "mainDeploys": false,
+  "checks": "npm test",
+  "scopes": [
+    "template",
+    "hooks",
+    "skills",
+    "installer",
+    "global",
+    "docs"
+  ],
+  "comments": {
+    "paths": [],
+    "extensions": [
+      "mjs",
+      "js",
+      "sh"
+    ],
+    "ignore": [
+      "global/hooks/"
+    ]
+  },
+  "worktree": {
+    "copy": [],
+    "share": [
+      ".agent"
+    ]
+  },
+  "installed": {
+    ".claude/hooks/git-guard.mjs": "72bec2620a69dca7",
+    ".claude/hooks/lib/comments.mjs": "67da193bcdb70df7",
+    ".claude/hooks/lib/config.mjs": "b2d695f00a573921",
+    ".claude/hooks/lib/scaffold.mjs": "507c022d14f1846f",
+    ".claude/hooks/lib/worktree.mjs": "4c49afb6518a663e",
+    ".claude/hooks/session-end.mjs": "5cf4c4c433712cbf",
+    ".claude/hooks/session-start.mjs": "e51e546eea68bbec",
+    ".claude/hooks/worktree-ready.mjs": "fa4e59ea2cfdbbd5",
+    ".claude/hooks/write-guard.mjs": "a7c7d67236ba3883",
+    ".claude/skills/ask-first/SKILL.md": "5e8f0cf9a3b05e64",
+    ".claude/skills/git-commit-push/SKILL.md": "8233e02dd7ffbb13",
+    ".claude/skills/no-inline-comments/SKILL.md": "72fe72a58f1cae04",
+    ".claude/skills/release/SKILL.md": "9935c3e35f5a63b8",
+    ".githooks/commit-msg": "25b20ba589093e42",
+    ".githooks/pre-commit": "930b49959c3be88b",
+    ".githooks/pre-push": "ef586a7c66fd9fa0",
+    "scripts/new-worktree.mjs": "be2a804850355d6f"
+  }
+}

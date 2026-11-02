@@ -1,0 +1,20 @@
+{
+  "project": "{{PROJECT}}",
+  "description": {{DESCRIPTION_JSON}},
+  "mainBranch": "{{MAIN}}",
+  "overridePrefix": "{{PREFIX}}",
+  "mainDeploys": {{DEPLOYS}},
+  "checks": {{CHECKS_JSON}},
+  "scopes": {{SCOPES_JSON}},
+  "people": {{PEOPLE_JSON}},
+  "owned": [],
+  "comments": {
+    "paths": [],
+    "extensions": {{EXTENSIONS_JSON}},
+    "ignore": {{IGNORE_JSON}}
+  },
+  "worktree": {
+    "copy": ["node_modules"],
+    "share": [".agent"]
+  }
+}

@@ -1,0 +1,27 @@
+#!/bin/sh
+
+if [ "${{{PREFIX}}_ALLOW_MAIN_PUSH:-}" = "1" ]; then
+	exit 0
+fi
+
+while read -r local_ref local_sha remote_ref remote_sha; do
+	if [ "$remote_ref" = "refs/heads/{{MAIN}}" ]; then
+		echo ""
+		echo "  Refusing to push to {{MAIN}}."
+		echo ""
+		echo "  Push a branch and merge it through a pull request once CI is green:"
+		echo ""
+		echo "      git push -u origin <type>/<topic>"
+		echo "      gh pr create --base {{MAIN}}"
+		echo ""
+		echo "  Tags are not affected: git push origin vX.Y.Z"
+		echo ""
+		echo "  If you genuinely mean to push {{MAIN}}:"
+		echo ""
+		echo "      {{PREFIX}}_ALLOW_MAIN_PUSH=1 git push …"
+		echo ""
+		exit 1
+	fi
+done
+
+exit 0

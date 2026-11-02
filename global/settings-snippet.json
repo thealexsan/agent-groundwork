@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      { "hooks": [{ "type": "command", "command": "node \"$HOME/.claude/hooks/chat-length-warning.mjs\"", "timeout": 5 }] },
+      { "hooks": [{ "type": "command", "command": "node \"$HOME/.claude/hooks/usage-limit-warning.mjs\"", "timeout": 10 }] },
+      { "hooks": [{ "type": "command", "command": "node \"$HOME/.claude/hooks/usage-handbrake.mjs\"", "timeout": 10 }] },
+      { "hooks": [{ "type": "command", "command": "node \"$HOME/.claude/hooks/short-answers.mjs\"", "timeout": 5 }] }
+    ],
+    "SessionStart": [
+      { "hooks": [{ "type": "command", "command": "node \"$HOME/.claude/hooks/short-answers.mjs\"", "timeout": 5 }] }
+    ],
+    "PreToolUse": [
+      { "hooks": [{ "type": "command", "command": "node \"$HOME/.claude/hooks/usage-handbrake.mjs\"", "timeout": 10 }] }
+    ]
+  }
+}

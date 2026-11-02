@@ -1,0 +1,20 @@
+#!/bin/sh
+
+message_file="$1"
+
+if [ "${{{PREFIX}}_ALLOW_ATTRIBUTION:-}" = "1" ]; then
+	exit 0
+fi
+
+if grep -qiE 'co-authored-by:[[:space:]]*(claude|gemini|antigravity|cursor|copilot|codex|devin|windsurf|aider|jules)|generated with \[?(claude code|antigravity|cursor|copilot|gemini|codex)|noreply@anthropic\.com' "$message_file"; then
+	echo ""
+	echo "  Refusing a commit message that credits an assistant."
+	echo ""
+	echo "  Commits in this repo carry the user's identity only — no Co-Authored-By for"
+	echo "  any assistant, no \"Generated with …\" line, no assistant noreply address."
+	echo "  Rewrite the message without those lines."
+	echo ""
+	exit 1
+fi
+
+exit 0
